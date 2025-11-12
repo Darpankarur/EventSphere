@@ -111,9 +111,3 @@ Each service directory and the frontend already include a committed `.env` file 
 - `AUTH_SERVICE_URL` / `EVENT_SERVICE_URL` – internal service discovery URLs
 
 The frontend `.env` exposes `REACT_APP_AUTH_API_URL`, `REACT_APP_EVENT_API_URL`, and `REACT_APP_BOOKING_API_URL`. Adjust these if your backend runs on different hosts or ports.
-
-## Testing
-Each service currently includes placeholder npm test scripts. Extend these as needed and run them with `npm test` from the respective service directory.
-
-## Contributing
-With the infrastructure and container tooling removed, contributions can focus purely on application code. Please open an issue or submit a pull request describing any fixes or enhancements.
