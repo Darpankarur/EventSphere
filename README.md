@@ -49,7 +49,8 @@ EventSphere/
 │   └── workflows/               # GitHub Actions
 │       ├── security-scan.yml    # Security scanning workflow
 │       ├── build.yml            # Build and push Docker images
-│       └── deploy.yml           # Deploy to EKS cluster
+│       ├── deploy-test.yml      # Automated deployment testing (kind)
+│       └── deploy.yml           # Production EKS deployment (manual only, not in pipeline)
 └── README.md
 ```
 
@@ -141,7 +142,7 @@ EventSphere includes automated CI/CD workflows using GitHub Actions. The pipelin
 ### Available Workflows
 
 1. **Security Scan** (`security-scan.yml`)
-   - ✅ **Runs first** - Must pass before build workflow runs
+   - **Runs first** - Must pass before build workflow runs
    - Runs on every push and pull request
    - Scans filesystem, Kubernetes manifests, Dockerfiles, and infrastructure
    - Fails on critical/high vulnerabilities to block unsafe code
@@ -149,17 +150,26 @@ EventSphere includes automated CI/CD workflows using GitHub Actions. The pipelin
    - **Best Practice**: Catches security issues early, prevents building vulnerable images
 
 2. **Build and Push** (`build.yml`)
-   - ✅ **Runs after security scan passes** - Only builds if code is secure
-   - ✅ **Path filtered** - Only runs when code in `services/`, `frontend/`, or workflow files change
+   - **Runs after security scan passes** - Only builds if code is secure
+   - **Path filtered** - Only runs when code in `services/`, `frontend/`, or workflow files change
    - Builds Docker images for all 4 services (auth, event, booking, frontend)
    - Pushes images to GitHub Container Registry (GHCR) - free, no AWS needed
    - Runs security scans on built images (additional layer of protection)
 
-3. **Deploy to EKS** (`deploy.yml`)
-   - Deploys to Kubernetes cluster automatically after successful builds
-   - Processes Kubernetes templates
-   - Updates image tags and applies manifests
+3. **Test Deployment** (`deploy-test.yml`) - **FREE, No AWS Required!**
+   - **Primary CI/CD deployment** - Runs automatically after successful builds
+   - Uses kind (Kubernetes in Docker) to create temporary cluster
+   - Validates Kubernetes manifests, deploys services, runs health checks
+   - Automatically tears down cluster after testing
+   - **Cost: $0** - Meets CI/CD deployment requirement without AWS costs
+
+4. **Deploy to EKS** (`deploy.yml`) - **Production Option (Manual Only)**
+   - **Manual trigger only** - Does NOT run automatically in pipeline
+   - Demonstrates production EKS deployment workflow
+   - Processes Kubernetes templates, updates image tags, applies manifests
    - Includes automatic rollback on failure
+   - **Requires AWS infrastructure** (EKS cluster)
+   - **Use case**: Production deployment when AWS infrastructure is available
 
 ### Quick Start - CI/CD
 
@@ -182,6 +192,22 @@ git push origin main
 # 2. If security scan passes → Build workflow runs automatically
 # 3. Build workflow builds and pushes images to GHCR
 # If security scan fails → Build is skipped (prevents pushing vulnerable images, fail-fast principle)
+```
+
+**Test Deployment (Free, No AWS Required):**
+```bash
+# After build completes, deploy-test workflow runs automatically
+# Or trigger manually from Actions tab → "Test Deployment (kind)" → Run workflow
+# This creates a temporary Kubernetes cluster, deploys your services, and tests them
+# All for FREE - no AWS costs!
+```
+
+**Production Deployment (Optional, Manual Only):**
+```bash
+# deploy.yml is available for production EKS deployment but does NOT run automatically
+# To use: Actions tab → "Deploy to EKS (Production - Manual Only)" → Run workflow
+# Requires: AWS infrastructure (EKS cluster) to be provisioned first
+# Note: This is for demonstration purposes only - deploy-test.yml is the primary CI/CD deployment
 ```
 
 **View Your Images:**
