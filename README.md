@@ -47,6 +47,9 @@ EventSphere/
 │   └── cloudwatch/              # CloudWatch logging
 ├── .github/                     # CI/CD workflows
 │   └── workflows/               # GitHub Actions
+│       ├── security-scan.yml    # Security scanning workflow
+│       ├── build.yml            # Build and push Docker images
+│       └── deploy.yml           # Deploy to EKS cluster
 └── README.md
 ```
 
@@ -131,6 +134,59 @@ The frontend `.env` exposes `REACT_APP_AUTH_API_URL`, `REACT_APP_EVENT_API_URL`,
 ## Testing
 Each service currently includes placeholder npm test scripts. Extend these as needed and run them with `npm test` from the respective service directory.
 
+## CI/CD Pipeline
+
+EventSphere includes automated CI/CD workflows using GitHub Actions. The pipeline provides security scanning, automated builds, and deployment capabilities.
+
+### Available Workflows
+
+1. **Security Scan** (`security-scan.yml`)
+   - ✅ **Runs first** - Must pass before build workflow runs
+   - Runs on every push and pull request
+   - Scans filesystem, Kubernetes manifests, Dockerfiles, and infrastructure
+   - Fails on critical/high vulnerabilities to block unsafe code
+   - Results appear in GitHub Security tab
+   - **Best Practice**: Catches security issues early, prevents building vulnerable images
+
+2. **Build and Push** (`build.yml`)
+   - ✅ **Runs after security scan passes** - Only builds if code is secure
+   - ✅ **Path filtered** - Only runs when code in `services/`, `frontend/`, or workflow files change
+   - Builds Docker images for all 4 services (auth, event, booking, frontend)
+   - Pushes images to GitHub Container Registry (GHCR) - free, no AWS needed
+   - Runs security scans on built images (additional layer of protection)
+
+3. **Deploy to EKS** (`deploy.yml`)
+   - Deploys to Kubernetes cluster automatically after successful builds
+   - Processes Kubernetes templates
+   - Updates image tags and applies manifests
+   - Includes automatic rollback on failure
+
+### Quick Start - CI/CD
+
+**Test Security Scan (Works Immediately):**
+```bash
+# Just push any change
+git push origin main
+# Check Actions tab - security scan runs automatically
+```
+
+**Test Build Workflow (Works Immediately):**
+```bash
+# Make a change to a service
+echo "// Test" >> services/auth-service/src/server.js
+git add services/auth-service/src/server.js
+git commit -m "Test CI/CD build"
+git push origin main
+# Check Actions tab:
+# 1. Security scan runs first
+# 2. If security scan passes → Build workflow runs automatically
+# 3. Build workflow builds and pushes images to GHCR
+# If security scan fails → Build is skipped (prevents pushing vulnerable images, fail-fast principle)
+```
+
+**View Your Images:**
+- Go to GitHub repo → **Packages** (right sidebar)
+
 ## Cloud Deployment (AWS EKS)
 
 EventSphere is designed for production deployment on AWS EKS with full observability, security, and CI/CD integration.
@@ -152,7 +208,7 @@ EventSphere is designed for production deployment on AWS EKS with full observabi
 - **Auto-scaling**: HPA for pods, Cluster Autoscaler for nodes
 - **Monitoring**: Prometheus, Grafana, and CloudWatch integration
 - **Security**: GuardDuty, Security Hub, Network Policies, Pod Security Standards
-- **CI/CD**: GitHub Actions for automated builds and deployments
+- **CI/CD**: GitHub Actions workflows for security scanning, automated builds (GHCR), and EKS deployments
 - **Secrets Management**: External Secrets Operator with AWS Secrets Manager
 
 ### Documentation
