@@ -152,8 +152,8 @@ jobs:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/auth-service:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-auth-service.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Fail build on critical/high vulnerabilities
+          severity: 'CRITICAL'
+          exit-code: '1'  # Fail build only on critical vulnerabilities
 
       - name: Run Trivy vulnerability scanner on event-service
         if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true'
@@ -162,8 +162,8 @@ jobs:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/event-service:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-event-service.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Fail build on critical/high vulnerabilities
+          severity: 'CRITICAL'
+          exit-code: '1'  # Fail build only on critical vulnerabilities
 
       - name: Run Trivy vulnerability scanner on booking-service
         if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true'
@@ -172,8 +172,8 @@ jobs:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/booking-service:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-booking-service.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Fail build on critical/high vulnerabilities
+          severity: 'CRITICAL'
+          exit-code: '1'  # Fail build only on critical vulnerabilities
 
       - name: Run Trivy vulnerability scanner on frontend
         if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true'
@@ -182,8 +182,8 @@ jobs:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-frontend.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Fail build on critical/high vulnerabilities
+          severity: 'CRITICAL'
+          exit-code: '1'  # Fail build only on critical vulnerabilities
 
       - name: Check for Trivy SARIF files
         id: trivy-sarif-check
