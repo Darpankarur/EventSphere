@@ -213,6 +213,15 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
+      - name: Run Trivy vulnerability scanner on auth-service (show table)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/auth-service:${{ steps.set-tag.outputs.tag }}
+          format: 'table'
+          severity: 'CRITICAL'
+          exit-code: '0'  # Don't fail here, just show vulnerabilities
+
       - name: Run Trivy vulnerability scanner on auth-service
         uses: aquasecurity/trivy-action@master
         with:
@@ -221,6 +230,15 @@ jobs:
           output: 'trivy-auth-service.sarif'
           severity: 'CRITICAL'
           exit-code: '1'
+
+      - name: Run Trivy vulnerability scanner on event-service (show table)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/event-service:${{ steps.set-tag.outputs.tag }}
+          format: 'table'
+          severity: 'CRITICAL'
+          exit-code: '0'  # Don't fail here, just show vulnerabilities
 
       - name: Run Trivy vulnerability scanner on event-service
         uses: aquasecurity/trivy-action@master
@@ -231,6 +249,15 @@ jobs:
           severity: 'CRITICAL'
           exit-code: '1'
 
+      - name: Run Trivy vulnerability scanner on booking-service (show table)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/booking-service:${{ steps.set-tag.outputs.tag }}
+          format: 'table'
+          severity: 'CRITICAL'
+          exit-code: '0'  # Don't fail here, just show vulnerabilities
+
       - name: Run Trivy vulnerability scanner on booking-service
         uses: aquasecurity/trivy-action@master
         with:
@@ -239,6 +266,15 @@ jobs:
           output: 'trivy-booking-service.sarif'
           severity: 'CRITICAL'
           exit-code: '1'
+
+      - name: Run Trivy vulnerability scanner on frontend (show table)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/frontend:${{ steps.set-tag.outputs.tag }}
+          format: 'table'
+          severity: 'CRITICAL'
+          exit-code: '0'  # Don't fail here, just show vulnerabilities
 
       - name: Run Trivy vulnerability scanner on frontend
         uses: aquasecurity/trivy-action@master
