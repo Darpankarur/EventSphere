@@ -1,0 +1,197 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+      - 'frontend/**'
+      - '.github/workflows/build.yml'
+      - 'docker-compose*.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+      - 'frontend/**'
+      - '.github/workflows/build.yml'
+      - 'docker-compose*.yml'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag (default: latest)'
+        required: false
+        default: 'latest'
+      skip_scan:
+        description: 'Skip Trivy security scan'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+jobs:
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: set-tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "tag=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create ECR repositories if needed
+        run: |
+          SERVICES=("auth-service" "event-service" "booking-service" "frontend")
+          for service in "${SERVICES[@]}"; do
+            if ! aws ecr describe-repositories --repository-names "$service" --region "${{ env.AWS_REGION }}" &> /dev/null; then
+              echo "Creating ECR repository: $service"
+              aws ecr create-repository \
+                --repository-name "$service" \
+                --region "${{ env.AWS_REGION }}" \
+                --image-scanning-configuration scanOnPush=true \
+                --encryption-configuration encryptionType=AES256
+            else
+              echo "Repository $service already exists"
+            fi
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push auth-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/auth-service
+          file: ./services/auth-service/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.ECR_REGISTRY }}/auth-service:${{ steps.set-tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/auth-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Build and push event-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/event-service
+          file: ./services/event-service/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.ECR_REGISTRY }}/event-service:${{ steps.set-tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/event-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Build and push booking-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/booking-service
+          file: ./services/booking-service/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.ECR_REGISTRY }}/booking-service:${{ steps.set-tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/booking-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.ECR_REGISTRY }}/frontend:${{ steps.set-tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Run Trivy vulnerability scanner on auth-service
+        if: github.event_name != 'pull_request' && github.event.inputs.skip_scan != 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/auth-service:${{ steps.set-tag.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-auth-service.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy vulnerability scanner on event-service
+        if: github.event_name != 'pull_request' && github.event.inputs.skip_scan != 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/event-service:${{ steps.set-tag.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-event-service.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy vulnerability scanner on booking-service
+        if: github.event_name != 'pull_request' && github.event.inputs.skip_scan != 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/booking-service:${{ steps.set-tag.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-booking-service.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy vulnerability scanner on frontend
+        if: github.event_name != 'pull_request' && github.event.inputs.skip_scan != 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/frontend:${{ steps.set-tag.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-frontend.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        if: github.event_name != 'pull_request' && github.event.inputs.skip_scan != 'true'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: |
+            trivy-auth-service.sarif
+            trivy-event-service.sarif
+            trivy-booking-service.sarif
+            trivy-frontend.sarif
+          wait-for-processing: false
+
+      - name: Output image tags
+        run: |
+          echo "Built and pushed images with tag: ${{ steps.set-tag.outputs.tag }}"
+          echo "Images available at:"
+          echo "  - ${{ env.ECR_REGISTRY }}/auth-service:${{ steps.set-tag.outputs.tag }}"
+          echo "  - ${{ env.ECR_REGISTRY }}/event-service:${{ steps.set-tag.outputs.tag }}"
+          echo "  - ${{ env.ECR_REGISTRY }}/booking-service:${{ steps.set-tag.outputs.tag }}"
+          echo "  - ${{ env.ECR_REGISTRY }}/frontend:${{ steps.set-tag.outputs.tag }}"
+
