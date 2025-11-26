@@ -143,9 +143,8 @@ EventSphere includes automated CI/CD workflows using GitHub Actions. The pipelin
 
 1. **Security Scan** (`security-scan.yml`)
    - **Runs first** - Must pass before build workflow runs
-   - Runs on every push and pull request (skips when only documentation files change)
+   - Runs on every push and pull request
    - Scans filesystem, Kubernetes manifests, Dockerfiles, and infrastructure
-   - Excludes documentation files (*.md) from scanning
    - Fails on critical vulnerabilities to block unsafe code
    - Results appear in GitHub Security tab
    - **Best Practice**: Catches security issues early, prevents building vulnerable images
@@ -153,7 +152,7 @@ EventSphere includes automated CI/CD workflows using GitHub Actions. The pipelin
 
 2. **Build and Push** (`build.yml`)
    - **Runs after security scan passes** - Only builds if code is secure
-   - Always runs when security scan passes (no path filtering)
+   - **Path filtered** - Only runs when code in `services/`, `frontend/`, or workflow files change
    - Builds Docker images for all 4 services (auth, event, booking, frontend)
    - Pushes images to GitHub Container Registry (GHCR) - free, no AWS needed
    - Runs security scans on built images (additional layer of protection)
