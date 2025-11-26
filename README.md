@@ -220,8 +220,8 @@ Security Scan → Build → Deploy to Staging → Deploy to Production
        │
        ▼
 ┌─────────────┐
-│Deploy Stage│ ◄─── Tests in kind cluster
-│  (kind)    │      Validates deployment
+│Deploy Stage │ ◄─── Tests in kind cluster
+│  (kind)     │      Validates deployment
 └─────────────┘
 ```
 
@@ -245,14 +245,14 @@ Security Scan → Build → Deploy to Staging → Deploy to Production
        │
        ▼
 ┌─────────────┐
-│Deploy Stage│ ◄─── Final validation
-│  (kind)    │
+│Deploy Stage │ ◄─── Final validation
+│  (kind)     │
 └──────┬──────┘
        │
        ▼
 ┌─────────────┐
-│Deploy Prod │ ◄─── AUTO-DEPLOYS to EKS!
-│   (EKS)    │      Only if staging succeeds
+│Deploy Prod  │ ◄─── AUTO-DEPLOYS to EKS!
+│   (EKS)     │      Only if staging succeeds
 └─────────────┘
 ```
 
