@@ -230,7 +230,8 @@ All services have HPA configured based on:
 
 1. **Security Scan Workflow** (`security-scan.yml`) - **Runs First**
    - Runs on every push and pull request to main branch
-   - Filesystem scans with Trivy (scans source code)
+   - **Path filtered** - Skips when only documentation files (*.md) change
+   - Filesystem scans with Trivy (scans source code, excludes *.md files)
    - Kubernetes manifest and Dockerfile scans with Trivy
    - Infrastructure scans with Checkov (CloudFormation, Terraform, Kubernetes)
    - Fails on critical vulnerabilities (fail-fast principle)
@@ -245,7 +246,7 @@ All services have HPA configured based on:
    - Builds Docker images for all services (auth, event, booking, frontend)
    - Runs Trivy security scans on all built images
    - Pushes to GitHub Container Registry (GHCR) - free, no AWS required
-   - Path filtered - only runs when relevant code changes (services/, frontend/, workflow files)
+   - **Always runs when security scan passes** (no path filtering)
    - Runs automatically after security scan passes
 
 3. **Test Deployment Workflow** (`deploy-test.yml`) - **Primary CI/CD Deployment**
