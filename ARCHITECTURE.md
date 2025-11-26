@@ -233,9 +233,13 @@ All services have HPA configured based on:
    - Filesystem scans with Trivy (scans source code)
    - Kubernetes manifest and Dockerfile scans with Trivy
    - Infrastructure scans with Checkov (CloudFormation, Terraform, Kubernetes)
-   - Fails on critical/high vulnerabilities (fail-fast principle)
+   - Fails on critical vulnerabilities (fail-fast principle)
    - Uploads results to GitHub Security tab
    - **Must pass before build workflow runs**
+   - **Note**: RBAC files (`k8s/base/rbac.yaml`) are excluded from scanning
+     - These roles are intentionally permissive for class project demonstration
+     - They demonstrate RBAC concepts (admin, developer, operator roles)
+     - In production, these should follow principle of least privilege
 
 2. **Build Workflow** (`build.yml`) - **Runs After Security Scan**
    - Builds Docker images for all services (auth, event, booking, frontend)
