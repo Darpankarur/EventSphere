@@ -185,15 +185,47 @@ jobs:
           severity: 'CRITICAL,HIGH'
           exit-code: '1'  # Fail build on critical/high vulnerabilities
 
-      - name: Upload Trivy results to GitHub Security
+      - name: Check for Trivy SARIF files
+        id: trivy-sarif-check
         if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        run: |
+          echo "Checking for Trivy SARIF files..."
+          [ -f trivy-auth-service.sarif ] && echo "auth-exists=true" >> $GITHUB_OUTPUT || echo "auth-exists=false" >> $GITHUB_OUTPUT
+          [ -f trivy-event-service.sarif ] && echo "event-exists=true" >> $GITHUB_OUTPUT || echo "event-exists=false" >> $GITHUB_OUTPUT
+          [ -f trivy-booking-service.sarif ] && echo "booking-exists=true" >> $GITHUB_OUTPUT || echo "booking-exists=false" >> $GITHUB_OUTPUT
+          [ -f trivy-frontend.sarif ] && echo "frontend-exists=true" >> $GITHUB_OUTPUT || echo "frontend-exists=false" >> $GITHUB_OUTPUT
+
+      - name: Upload Trivy auth-service results
+        if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true' && always() && steps.trivy-sarif-check.outputs.auth-exists == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
         with:
-          sarif_file: |
-            trivy-auth-service.sarif
-            trivy-event-service.sarif
-            trivy-booking-service.sarif
-            trivy-frontend.sarif
+          sarif_file: trivy-auth-service.sarif
+          wait-for-processing: false
+
+      - name: Upload Trivy event-service results
+        if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true' && always() && steps.trivy-sarif-check.outputs.event-exists == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: trivy-event-service.sarif
+          wait-for-processing: false
+
+      - name: Upload Trivy booking-service results
+        if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true' && always() && steps.trivy-sarif-check.outputs.booking-exists == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: trivy-booking-service.sarif
+          wait-for-processing: false
+
+      - name: Upload Trivy frontend results
+        if: steps.check-build.outputs.build_needed == 'true' && github.event.inputs.skip_scan != 'true' && always() && steps.trivy-sarif-check.outputs.frontend-exists == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: trivy-frontend.sarif
           wait-for-processing: false
 
       - name: Output image tags

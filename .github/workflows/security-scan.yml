@@ -50,11 +50,35 @@ jobs:
           output_file_path: checkov-results.sarif
           soft_fail: true
 
-      - name: Upload all security scan results
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Check for SARIF files
+        id: sarif-check
+        continue-on-error: true
+        run: |
+          echo "Checking for SARIF files..."
+          [ -f trivy-fs-results.sarif ] && echo "trivy-fs-exists=true" >> $GITHUB_OUTPUT || echo "trivy-fs-exists=false" >> $GITHUB_OUTPUT
+          [ -f trivy-config-results.sarif ] && echo "trivy-config-exists=true" >> $GITHUB_OUTPUT || echo "trivy-config-exists=false" >> $GITHUB_OUTPUT
+          [ -f checkov-results.sarif ] && echo "checkov-exists=true" >> $GITHUB_OUTPUT || echo "checkov-exists=false" >> $GITHUB_OUTPUT
+
+      - name: Upload Trivy filesystem scan results
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
         with:
-          sarif_file: |
-            trivy-fs-results.sarif
-            trivy-config-results.sarif
-            checkov-results.sarif
+          sarif_file: trivy-fs-results.sarif
           wait-for-processing: false
+        if: always() && steps.sarif-check.outputs.trivy-fs-exists == 'true'
+
+      - name: Upload Trivy config scan results
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: trivy-config-results.sarif
+          wait-for-processing: false
+        if: always() && steps.sarif-check.outputs.trivy-config-exists == 'true'
+
+      - name: Upload Checkov scan results
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: checkov-results.sarif
+          wait-for-processing: false
+        if: always() && steps.sarif-check.outputs.checkov-exists == 'true'
