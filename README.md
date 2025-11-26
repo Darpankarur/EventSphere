@@ -47,8 +47,9 @@ EventSphere/
 │   └── cloudwatch/              # CloudWatch logging
 ├── .github/                     # CI/CD workflows
 │   └── workflows/               # GitHub Actions
-│       ├── security-scan.yml    # Security scanning workflow
-│       ├── build.yml            # Build and push Docker images
+│       ├── ci-pr.yml            # Combined CI pipeline for PRs (Security Scan → Build → Deploy)
+│       ├── security-scan.yml    # Security scanning workflow (main branch)
+│       ├── build.yml            # Build and push Docker images (main branch)
 │       ├── deploy-test.yml      # Deploy to Staging (kind cluster)
 │       └── deploy.yml           # Deploy to Production (EKS)
 └── README.md
@@ -142,35 +143,50 @@ EventSphere includes automated CI/CD workflows using GitHub Actions following in
 ### Pipeline Flow
 
 #### On Pull Requests (Continuous Integration)
+The `ci-pr.yml` workflow runs all steps sequentially in a single workflow:
 ```
 Security Scan → Build → Deploy to Staging
 ```
+- **Sequential execution**: Each step only runs after the previous one succeeds
+- **Job dependencies**: Uses `needs:` to ensure proper ordering
 - Validates code quality and security
 - Builds and tests Docker images
 - Tests deployment in staging environment (kind cluster)
+- All checks must pass before PR can be merged
 
 #### On Main Branch (Continuous Deployment)
+Separate workflows trigger sequentially via `workflow_run`:
 ```
 Security Scan → Build → Deploy to Staging → Deploy to Production
 ```
+- **Sequential execution**: Each workflow triggers the next after successful completion
+- **workflow_run triggers**: Ensures proper ordering across separate workflows
 - Full validation pipeline
 - Automatic deployment to production EKS after staging succeeds
 - Production deployment only runs on main branch
 
 ### Available Workflows
 
-1. **Security Scan** (`security-scan.yml`)
+1. **CI Pipeline (PR)** (`ci-pr.yml`) - **For Pull Requests**
+   - **Combined workflow** with sequential jobs: Security Scan → Build → Deploy to Staging
+   - Runs on pull requests targeting `main` branch
+   - **Job dependencies**: Each job uses `needs:` to wait for previous job success
+   - All three steps run in a single workflow for better visibility and control
+   - **Purpose**: Validate PRs before merging to main
+
+2. **Security Scan** (`security-scan.yml`) - **For Main Branch**
    - **Runs first** - Must pass before build workflow runs
-   - Runs on every push and pull request
+   - Runs on push to `main` branch
+   - Triggers `build.yml` via `workflow_run` after successful completion
    - Scans filesystem, Kubernetes manifests, Dockerfiles, and infrastructure
    - Fails on critical vulnerabilities to block unsafe code
    - Results appear in GitHub Security tab
    - **Best Practice**: Catches security issues early, prevents building vulnerable images
    - **Note**: RBAC files are excluded from scanning (intentionally permissive roles for class project demonstration)
 
-2. **Build and Push** (`build.yml`)
+3. **Build and Push** (`build.yml`) - **For Main Branch**
    - **Runs after security scan passes** - Only builds if code is secure
-   - **Path filtered** - Only runs when code in `services/`, `frontend/`, or workflow files change
+   - Triggered by `workflow_run` from Security Scan workflow
    - Builds Docker images for all 4 services (auth, event, booking, frontend)
    - **Dual Registry Support**:
      - **GHCR (GitHub Container Registry)**: Always pushes - required for all deployments
@@ -178,18 +194,23 @@ Security Scan → Build → Deploy to Staging → Deploy to Production
      - Build never fails if ECR is unavailable (graceful degradation)
    - Tags images with commit SHA (consistent across PRs and main branch)
    - Runs security scans on built images (Trivy)
+   - Triggers `deploy-test.yml` via `workflow_run` after successful completion
 
-3. **Deploy to Staging** (`deploy-test.yml`) - **FREE, No AWS Required!**
+4. **Deploy to Staging** (`deploy-test.yml`) - **FREE, No AWS Required!**
    - **Runs automatically after successful builds**
+   - For PRs: Runs as part of `ci-pr.yml` workflow
+   - For main branch: Triggered by `workflow_run` from Build workflow
    - Uses kind (Kubernetes in Docker) to create temporary staging cluster
    - Validates Kubernetes manifests, deploys services, runs health checks
    - Tests deployment structure and service startup
    - Automatically tears down cluster after testing
    - **Cost: $0** - Meets CI/CD deployment requirement without AWS costs
    - **Purpose**: Staging environment validation before production
+   - For main branch: Triggers `deploy.yml` via `workflow_run` after successful completion
 
-4. **Deploy to Production** (`deploy.yml`) - **EKS Production Deployment**
+5. **Deploy to Production** (`deploy.yml`) - **EKS Production Deployment**
    - **Runs automatically on main branch** after staging deployment succeeds
+   - Triggered by `workflow_run` from Deploy to Staging workflow
    - Can also be triggered manually for other environments (staging, dev)
    - Deploys to AWS EKS production cluster
    - Processes Kubernetes templates, updates image tags, applies manifests
@@ -272,11 +293,13 @@ Security Scan → Build → Deploy to Staging → Deploy to Production
 
 **On Pull Requests:**
 ```bash
-# Create a PR - the following runs automatically:
-# 1. Security Scan → validates code security
+# Create a PR - the ci-pr.yml workflow runs automatically:
+# All steps run sequentially in a single workflow:
+# 1. Security Scan → validates code security (must pass)
 # 2. Build → builds and pushes images to GHCR (tagged with commit SHA)
-#           Optionally pushes to ECR if configured
+#           Only runs if Security Scan succeeds
 # 3. Deploy to Staging → tests deployment in kind cluster
+#           Only runs if Build succeeds
 # All checks must pass before PR can be merged
 ```
 

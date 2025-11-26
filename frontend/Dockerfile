@@ -18,6 +18,10 @@ RUN npm run build
 # Production stage with Nginx
 FROM nginx:alpine AS production
 
+# Update libxml2 to fix security vulnerabilities (CVE-2025-49794, CVE-2025-49796)
+# Only upgrade libxml2 specifically to minimize risk of breaking changes
+RUN apk update && apk upgrade libxml2 && rm -rf /var/cache/apk/*
+
 # Create non-root user (nginx user already exists in nginx:alpine)
 # nginx:alpine runs as nginx user by default, but we'll ensure proper permissions
 
