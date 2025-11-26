@@ -28,8 +28,8 @@ jobs:
           scan-ref: '.'
           format: 'sarif'
           output: 'trivy-fs-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'  # Fail on critical/high vulnerabilities
 
       - name: Run Trivy Kubernetes and Dockerfile scan
         uses: aquasecurity/trivy-action@master
@@ -38,8 +38,8 @@ jobs:
           scan-ref: '.'
           format: 'sarif'
           output: 'trivy-config-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'  # Fail on critical/high vulnerabilities
 
       - name: Run Checkov infrastructure scan
         uses: bridgecrewio/checkov-action@master
