@@ -155,16 +155,6 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Run Trivy vulnerability scanner on auth-service (show table)
-        if: github.event.inputs.skip_scan != 'true'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/auth-service:${{ steps.set-tag.outputs.tag }}
-          format: 'table'
-          severity: 'CRITICAL'
-          exit-code: '0'  # Don't fail here, just show vulnerabilities
-
       - name: Run Trivy vulnerability scanner on auth-service
         if: github.event.inputs.skip_scan != 'true'
         continue-on-error: true
@@ -173,34 +163,37 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/auth-service:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-auth-service.sarif'
-          severity: 'CRITICAL'
           exit-code: '0'  # Don't fail here, we'll check the SARIF file
 
-      - name: Check auth-service for CRITICAL vulnerabilities
+      - name: Display auth-service vulnerabilities
         if: github.event.inputs.skip_scan != 'true'
         run: |
           if [ -f trivy-auth-service.sarif ]; then
-            # Check if SARIF file contains any results (vulnerabilities found)
-            if jq -e '.runs[0].results | length > 0' trivy-auth-service.sarif > /dev/null 2>&1; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 Vulnerability Report: auth-service"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # Extract and display vulnerabilities in a readable format
+            jq -r '.runs[0].results[] | 
+              "Severity: " + (.message.text | capture("Severity: (?<sev>[A-Z]+)") | .sev // "UNKNOWN") + "\n" +
+              "CVE: " + .ruleId + "\n" +
+              (.message.text | split("\n") | map(select(. != "")) | .[] | "  " + .) + "\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"' \
+              trivy-auth-service.sarif 2>/dev/null || echo "No vulnerabilities found or unable to parse SARIF"
+            
+            # Check for CRITICAL vulnerabilities
+            CRITICAL_COUNT=$(jq '[.runs[0].results[] | select(.message.text | contains("Severity: CRITICAL"))] | length' trivy-auth-service.sarif 2>/dev/null || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo ""
               echo "❌ CRITICAL vulnerabilities found in auth-service!"
-              jq '.runs[0].results[] | {ruleId, message: .message.text}' trivy-auth-service.sarif
               exit 1
             else
+              echo ""
               echo "✅ No CRITICAL vulnerabilities found in auth-service"
             fi
           else
             echo "⚠️ SARIF file not found, skipping check"
           fi
-
-      - name: Run Trivy vulnerability scanner on event-service (show table)
-        if: github.event.inputs.skip_scan != 'true'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/event-service:${{ steps.set-tag.outputs.tag }}
-          format: 'table'
-          severity: 'CRITICAL'
-          exit-code: '0'  # Don't fail here, just show vulnerabilities
 
       - name: Run Trivy vulnerability scanner on event-service
         if: github.event.inputs.skip_scan != 'true'
@@ -210,33 +203,35 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/event-service:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-event-service.sarif'
-          severity: 'CRITICAL'
           exit-code: '0'  # Don't fail here, we'll check the SARIF file
 
-      - name: Check event-service for CRITICAL vulnerabilities
+      - name: Display event-service vulnerabilities
         if: github.event.inputs.skip_scan != 'true'
         run: |
           if [ -f trivy-event-service.sarif ]; then
-            if jq -e '.runs[0].results | length > 0' trivy-event-service.sarif > /dev/null 2>&1; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 Vulnerability Report: event-service"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            jq -r '.runs[0].results[] | 
+              "Severity: " + (.message.text | capture("Severity: (?<sev>[A-Z]+)") | .sev // "UNKNOWN") + "\n" +
+              "CVE: " + .ruleId + "\n" +
+              (.message.text | split("\n") | map(select(. != "")) | .[] | "  " + .) + "\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"' \
+              trivy-event-service.sarif 2>/dev/null || echo "No vulnerabilities found or unable to parse SARIF"
+            
+            CRITICAL_COUNT=$(jq '[.runs[0].results[] | select(.message.text | contains("Severity: CRITICAL"))] | length' trivy-event-service.sarif 2>/dev/null || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo ""
               echo "❌ CRITICAL vulnerabilities found in event-service!"
-              jq '.runs[0].results[] | {ruleId, message: .message.text}' trivy-event-service.sarif
               exit 1
             else
+              echo ""
               echo "✅ No CRITICAL vulnerabilities found in event-service"
             fi
           else
             echo "⚠️ SARIF file not found, skipping check"
           fi
-
-      - name: Run Trivy vulnerability scanner on booking-service (show table)
-        if: github.event.inputs.skip_scan != 'true'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/booking-service:${{ steps.set-tag.outputs.tag }}
-          format: 'table'
-          severity: 'CRITICAL'
-          exit-code: '0'  # Don't fail here, just show vulnerabilities
 
       - name: Run Trivy vulnerability scanner on booking-service
         if: github.event.inputs.skip_scan != 'true'
@@ -246,33 +241,35 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/booking-service:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-booking-service.sarif'
-          severity: 'CRITICAL'
           exit-code: '0'  # Don't fail here, we'll check the SARIF file
 
-      - name: Check booking-service for CRITICAL vulnerabilities
+      - name: Display booking-service vulnerabilities
         if: github.event.inputs.skip_scan != 'true'
         run: |
           if [ -f trivy-booking-service.sarif ]; then
-            if jq -e '.runs[0].results | length > 0' trivy-booking-service.sarif > /dev/null 2>&1; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 Vulnerability Report: booking-service"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            jq -r '.runs[0].results[] | 
+              "Severity: " + (.message.text | capture("Severity: (?<sev>[A-Z]+)") | .sev // "UNKNOWN") + "\n" +
+              "CVE: " + .ruleId + "\n" +
+              (.message.text | split("\n") | map(select(. != "")) | .[] | "  " + .) + "\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"' \
+              trivy-booking-service.sarif 2>/dev/null || echo "No vulnerabilities found or unable to parse SARIF"
+            
+            CRITICAL_COUNT=$(jq '[.runs[0].results[] | select(.message.text | contains("Severity: CRITICAL"))] | length' trivy-booking-service.sarif 2>/dev/null || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo ""
               echo "❌ CRITICAL vulnerabilities found in booking-service!"
-              jq '.runs[0].results[] | {ruleId, message: .message.text}' trivy-booking-service.sarif
               exit 1
             else
+              echo ""
               echo "✅ No CRITICAL vulnerabilities found in booking-service"
             fi
           else
             echo "⚠️ SARIF file not found, skipping check"
           fi
-
-      - name: Run Trivy vulnerability scanner on frontend (show table)
-        if: github.event.inputs.skip_scan != 'true'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/frontend:${{ steps.set-tag.outputs.tag }}
-          format: 'table'
-          severity: 'CRITICAL'
-          exit-code: '0'  # Don't fail here, just show vulnerabilities
 
       - name: Run Trivy vulnerability scanner on frontend
         if: github.event.inputs.skip_scan != 'true'
@@ -282,18 +279,30 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ steps.image-prefix.outputs.prefix }}/frontend:${{ steps.set-tag.outputs.tag }}
           format: 'sarif'
           output: 'trivy-frontend.sarif'
-          severity: 'CRITICAL'
           exit-code: '0'  # Don't fail here, we'll check the SARIF file
 
-      - name: Check frontend for CRITICAL vulnerabilities
+      - name: Display frontend vulnerabilities
         if: github.event.inputs.skip_scan != 'true'
         run: |
           if [ -f trivy-frontend.sarif ]; then
-            if jq -e '.runs[0].results | length > 0' trivy-frontend.sarif > /dev/null 2>&1; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 Vulnerability Report: frontend"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            jq -r '.runs[0].results[] | 
+              "Severity: " + (.message.text | capture("Severity: (?<sev>[A-Z]+)") | .sev // "UNKNOWN") + "\n" +
+              "CVE: " + .ruleId + "\n" +
+              (.message.text | split("\n") | map(select(. != "")) | .[] | "  " + .) + "\n" +
+              "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"' \
+              trivy-frontend.sarif 2>/dev/null || echo "No vulnerabilities found or unable to parse SARIF"
+            
+            CRITICAL_COUNT=$(jq '[.runs[0].results[] | select(.message.text | contains("Severity: CRITICAL"))] | length' trivy-frontend.sarif 2>/dev/null || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo ""
               echo "❌ CRITICAL vulnerabilities found in frontend!"
-              jq '.runs[0].results[] | {ruleId, message: .message.text}' trivy-frontend.sarif
               exit 1
             else
+              echo ""
               echo "✅ No CRITICAL vulnerabilities found in frontend"
             fi
           else
