@@ -48,7 +48,7 @@ services:
       - "4002:4002"
     environment:
       PORT: 4002
-      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/auth?authSource=admin
+      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/events?authSource=admin
       AUTH_SERVICE_URL: http://auth-service:4001
       NODE_ENV: production
     depends_on:
@@ -70,7 +70,7 @@ services:
       - "4003:4003"
     environment:
       PORT: 4003
-      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/auth?authSource=admin
+      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/bookings?authSource=admin
       AUTH_SERVICE_URL: http://auth-service:4001
       EVENT_SERVICE_URL: http://event-service:4002
       NODE_ENV: production
