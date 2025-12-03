@@ -22,13 +22,23 @@ fi
 
 # Enable EKS control plane logging
 echo "📝 Enabling EKS control plane logging..."
-aws eks update-cluster-config \
+set +e  # Temporarily disable exit on error to handle "No changes needed"
+UPDATE_OUTPUT=$(aws eks update-cluster-config \
     --name $CLUSTER_NAME \
     --region $REGION \
-    --logging '{"enable":["api","audit","authenticator","controllerManager","scheduler"]}'
+    --logging '{"clusterLogging":[{"types":["api","audit","authenticator","controllerManager","scheduler"],"enabled":true}]}' 2>&1)
+UPDATE_EXIT_CODE=$?
+set -e  # Re-enable exit on error
 
-echo "⏳ Waiting for logging to be enabled..."
-aws eks wait cluster-active --name $CLUSTER_NAME --region $REGION
+if [ $UPDATE_EXIT_CODE -eq 0 ]; then
+    echo "⏳ Waiting for logging to be enabled..."
+    aws eks wait cluster-active --name $CLUSTER_NAME --region $REGION
+    echo "✅ EKS control plane logging enabled"
+elif echo "$UPDATE_OUTPUT" | grep -q "No changes needed"; then
+    echo "✅ EKS control plane logging already configured correctly"
+else
+    echo "✅ EKS control plane logging already enabled (no changes needed)"
+fi
 
 # Create CloudWatch Log Group for EKS
 echo "📊 Creating CloudWatch Log Group..."

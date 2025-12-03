@@ -427,4 +427,4 @@ Comprehensive runbooks for operational procedures:
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. For security issues, please email security@enpm818rgroup7.work.gd instead of creating a public issue.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

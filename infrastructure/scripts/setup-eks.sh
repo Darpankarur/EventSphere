@@ -83,6 +83,76 @@ kubectl set env deployment cluster-autoscaler \
   -n kube-system \
   -e CLUSTER_NAME=$CLUSTER_NAME
 
+# Fix Cluster Autoscaler configuration - remove placeholder and set correct auto-discovery
+echo "🔧 Fixing Cluster Autoscaler configuration..."
+AUTOSCALER_DISCOVERY="--node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/$CLUSTER_NAME"
+kubectl patch deployment cluster-autoscaler -n kube-system --type='json' -p="[
+  {
+    \"op\": \"replace\",
+    \"path\": \"/spec/template/spec/containers/0/command\",
+    \"value\": [
+      \"./cluster-autoscaler\",
+      \"--v=4\",
+      \"--stderrthreshold=info\",
+      \"--cloud-provider=aws\",
+      \"--skip-nodes-with-local-storage=false\",
+      \"--expander=least-waste\",
+      \"$AUTOSCALER_DISCOVERY\"
+    ]
+  }
+]"
+
+# Tag ASGs for Cluster Autoscaler auto-discovery
+echo "🏷️  Tagging ASGs for Cluster Autoscaler auto-discovery..."
+tag_asg_for_autoscaler() {
+    local NODE_GROUP_NAME=$1
+    local ASG_NAME=$(aws eks describe-nodegroup \
+        --cluster-name $CLUSTER_NAME \
+        --nodegroup-name $NODE_GROUP_NAME \
+        --region $REGION \
+        --query 'nodegroup.resources.autoScalingGroups[0].name' \
+        --output text 2>/dev/null || echo "")
+    
+    if [ -z "$ASG_NAME" ] || [ "$ASG_NAME" = "None" ]; then
+        echo "⚠️  Could not find ASG for node group: $NODE_GROUP_NAME"
+        return 1
+    fi
+    
+    echo "  Tagging ASG: $ASG_NAME (node group: $NODE_GROUP_NAME)"
+    aws autoscaling create-or-update-tags \
+        --region $REGION \
+        --tags \
+        "ResourceId=$ASG_NAME,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/enabled,Value=true,PropagateAtLaunch=true" \
+        "ResourceId=$ASG_NAME,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/$CLUSTER_NAME,Value=true,PropagateAtLaunch=true" \
+        > /dev/null 2>&1
+    
+    if [ $? -eq 0 ]; then
+        echo "  ✅ Successfully tagged ASG: $ASG_NAME"
+    else
+        echo "  ⚠️  Failed to tag ASG: $ASG_NAME (may already be tagged)"
+    fi
+}
+
+# Wait a bit for node groups to be fully created
+echo "⏳ Waiting for node groups to be ready..."
+sleep 10
+
+# Tag ASGs for all node groups
+NODE_GROUPS=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --region $REGION --query 'nodegroups[]' --output text 2>/dev/null || echo "")
+if [ -n "$NODE_GROUPS" ]; then
+    for ng in $NODE_GROUPS; do
+        tag_asg_for_autoscaler "$ng"
+    done
+else
+    echo "⚠️  Could not list node groups, will tag manually later"
+    echo "   Run: ./infrastructure/scripts/tag-asgs-for-autoscaler.sh"
+fi
+
+# Restart autoscaler to pick up the changes
+echo "🔄 Restarting Cluster Autoscaler..."
+kubectl rollout restart deployment cluster-autoscaler -n kube-system
+kubectl wait --for=condition=available --timeout=120s deployment/cluster-autoscaler -n kube-system || echo "⚠️  Autoscaler may still be starting..."
+
 # Install External Secrets Operator
 echo "📥 Installing External Secrets Operator..."
 helm repo add external-secrets https://charts.external-secrets.io
@@ -122,12 +192,18 @@ kubectl wait --for=condition=available --timeout=300s deployment/metrics-server 
 
 echo "✅ EKS cluster setup completed!"
 echo ""
+echo "✅ Cluster Autoscaler is configured and ASGs are tagged for auto-discovery"
+echo ""
 echo "Next steps:"
 echo "1. Verify all pods are running: kubectl get pods -A"
 echo "2. Create IAM roles and annotate service accounts: ./infrastructure/scripts/create-iam-roles.sh"
 echo "3. Deploy MongoDB StatefulSet: kubectl apply -f k8s/mongodb/"
 echo "4. Deploy microservices: kubectl apply -f k8s/base/"
 echo "5. Configure Ingress: kubectl apply -f k8s/ingress/"
+echo ""
+echo "To verify Cluster Autoscaler is working:"
+echo "  kubectl logs -n kube-system -l app=cluster-autoscaler | grep -iE 'ASG|discovered'"
+echo "  (Should show: 'Successfully queried instance requirements for X ASGs')"
 
 
 
