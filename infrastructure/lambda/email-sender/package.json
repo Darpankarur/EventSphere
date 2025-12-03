@@ -1,0 +1,9 @@
+{
+  "name": "sns-to-ses-email-sender",
+  "version": "1.0.0",
+  "description": "Lambda function to send emails via SES when triggered by SNS",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.709.0"
+  }
+}

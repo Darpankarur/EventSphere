@@ -11,12 +11,14 @@ EventSphere is a microservice-based event management platform. The repository co
 - Ticket booking workflow with simulated payments
 - Booking management including history and cancellations
 - Administrative tooling for event creation and analytics
+- Email notifications via AWS SNS for user registration and booking confirmations
 
 ## Service Overview
 The system is composed of the following independently running services:
 - **Auth Service** (port 4001) – manages user accounts and tokens
 - **Event Service** (port 4002) – handles CRUD operations for events
 - **Booking Service** (port 4003) – coordinates ticket reservations
+- **Notification Service** (port 4004) – sends email notifications via AWS SNS
 - **Frontend** (port 3000) – React single-page application that consumes the APIs above
 
 All services communicate over HTTP and store data in MongoDB. Ensure that a MongoDB instance is running locally and that each service's `.env` file points to it.
@@ -30,7 +32,8 @@ EventSphere/
 ├── services/                    # Microservices
 │   ├── auth-service/
 │   ├── event-service/
-│   └── booking-service/
+│   ├── booking-service/
+│   └── notification-service/
 ├── k8s/                         # Kubernetes manifests
 │   ├── base/                    # Base configurations
 │   ├── mongodb/                 # MongoDB StatefulSet
@@ -67,6 +70,7 @@ Install dependencies for each service and the frontend:
 cd services/auth-service; npm install
 cd ../event-service; npm install
 cd ../booking-service; npm install
+cd ../notification-service; npm install
 cd ../../frontend; npm install
 ```
 
@@ -76,7 +80,10 @@ Each backend service exposes an npm script for development mode with automatic r
 cd services/auth-service; npm run dev
 cd services/event-service; npm run dev
 cd services/booking-service; npm run dev
+cd services/notification-service; npm run dev
 ```
+
+**Note:** The notification service requires AWS SNS configuration. See [Notification Service Setup](#notification-service-setup) below.
 
 ### Run the Frontend
 ```bash
@@ -124,12 +131,56 @@ The React development server will proxy API requests to the backend services whe
 - Event capacity and availability are enforced by the event-service middleware, so bookings will fail gracefully when seats run out.
 - All admin-only endpoints validate JWTs and roles via the auth-service. Ensure you include the `Authorization: Bearer <token>` header when calling backend APIs directly.
 
+## Notification Service
+
+The notification service sends email notifications using **AWS SNS + Lambda + SES**:
+- Welcome emails when users register
+- Booking confirmation emails when users book events
+
+### Architecture
+```
+Notification Service → SNS Topic → Lambda Function → SES → User Email
+```
+
+### How It Works
+1. User registers/books event
+2. Notification service publishes to SNS
+3. Lambda function extracts user email
+4. SES sends email to specific user
+
+### Cloud Deployment
+See [DEPLOYMENT_ORDER.md](DEPLOYMENT_ORDER.md) for complete deployment steps.
+
+Quick summary:
+```bash
+cd infrastructure/scripts
+
+# 1. Create EKS cluster
+./setup-eks.sh
+
+# 2. Deploy Lambda email sender (will ask for your email)
+./deploy-lambda-email-sender.sh
+
+# 3. Build and push images
+./build-and-push-images.sh
+
+# 4. Process templates
+./process-templates.sh
+
+# 5. Deploy services
+./deploy-services.sh
+```
+
+For detailed architecture and troubleshooting, see [SNS_LAMBDA_SETUP.md](SNS_LAMBDA_SETUP.md).
+
 ## Environment Configuration
 Each service directory and the frontend already include a committed `.env` file configured for local development. Key variables you can tweak are:
 - `MONGO_URI` – MongoDB connection string
 - `JWT_SECRET` – secret for signing auth tokens (auth service)
 - `PORT` – optional override for default ports listed above
-- `AUTH_SERVICE_URL` / `EVENT_SERVICE_URL` – internal service discovery URLs
+- `AUTH_SERVICE_URL` / `EVENT_SERVICE_URL` / `NOTIFICATION_SERVICE_URL` – internal service discovery URLs
+- `SNS_TOPIC_ARN` – AWS SNS topic ARN for notifications (notification service)
+- `AWS_REGION` – AWS region for SNS (notification service)
 
 The frontend `.env` exposes `REACT_APP_AUTH_API_URL`, `REACT_APP_EVENT_API_URL`, and `REACT_APP_BOOKING_API_URL`. Adjust these if your backend runs on different hosts or ports.
 

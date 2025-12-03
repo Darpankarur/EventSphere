@@ -186,7 +186,7 @@ function AdminEvents() {
                 <td>{event.venue}</td>
                 <td>{event.capacity}</td>
                 <td>{event.availableSeats}</td>
-                <td>₹{event.price}</td>
+                <td>${event.price}</td>
                 <td>
                   <button 
                     onClick={() => handleDelete(event._id)}

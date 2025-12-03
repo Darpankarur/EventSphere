@@ -6,6 +6,7 @@ const { verifyToken } = require('../middleware/auth');
 const router = express.Router();
 
 const EVENT_SERVICE_URL = process.env.EVENT_SERVICE_URL || 'http://localhost:4002';
+const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4004';
 
 // POST /api/bookings - Create a new booking
 router.post('/', verifyToken, async (req, res) => {
@@ -81,6 +82,28 @@ router.post('/', verifyToken, async (req, res) => {
       }
 
       await booking.save();
+
+      // Send booking confirmation email (non-blocking)
+      axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications/booking-confirmation`, {
+        email: req.user.email,
+        userName: req.user.name,
+        eventDetails: {
+          title: event.title,
+          date: event.date,
+          time: event.time,
+          venue: event.venue,
+          category: event.category
+        },
+        bookingDetails: {
+          bookingId: booking.bookingReference,
+          quantity: booking.numberOfTickets,
+          totalAmount: booking.totalAmount,
+          bookingDate: booking.createdAt
+        }
+      }).catch(err => {
+        console.error('Failed to send booking confirmation email:', err.message);
+        // Don't fail booking if notification fails
+      });
 
       res.status(201).json({
         message: 'Booking confirmed successfully',

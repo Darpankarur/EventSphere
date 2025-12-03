@@ -145,6 +145,11 @@ if [ -f "$PROJECT_ROOT/k8s/base/booking-service-deployment.yaml.template" ]; the
         "$OUTPUT_DIR/base/booking-service-deployment.yaml"
 fi
 
+if [ -f "$PROJECT_ROOT/k8s/base/notification-service-deployment.yaml.template" ]; then
+    process_template "$PROJECT_ROOT/k8s/base/notification-service-deployment.yaml.template" \
+        "$OUTPUT_DIR/base/notification-service-deployment.yaml"
+fi
+
 if [ -f "$PROJECT_ROOT/k8s/base/frontend-deployment.yaml.template" ]; then
     process_template "$PROJECT_ROOT/k8s/base/frontend-deployment.yaml.template" \
         "$OUTPUT_DIR/base/frontend-deployment.yaml"

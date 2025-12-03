@@ -1,10 +1,12 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const axios = require('axios');
 const User = require('../models/User');
 
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4004';
 
 // Generate JWT token
 const generateToken = (userId, role) => {
@@ -32,6 +34,15 @@ router.post('/register', async (req, res) => {
 
     // Generate token
     const token = generateToken(user._id, user.role);
+
+    // Send welcome email notification (non-blocking)
+    axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications/welcome`, {
+      email: user.email,
+      userName: user.name
+    }).catch(err => {
+      console.error('Failed to send welcome email:', err.message);
+      // Don't fail registration if notification fails
+    });
 
     res.status(201).json({
       message: 'User registered successfully',

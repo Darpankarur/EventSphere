@@ -53,6 +53,11 @@ spec:
             secretKeyRef:
               name: auth-service-secret
               key: jwt-secret
+        - name: NOTIFICATION_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: auth-service-config
+              key: NOTIFICATION_SERVICE_URL
         - name: CORS_ORIGINS
           valueFrom:
             configMapKeyRef:

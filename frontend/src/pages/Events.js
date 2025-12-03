@@ -73,7 +73,7 @@ function Events() {
                 <p className="event-category">{event.category}</p>
                 <p className="event-date">{new Date(event.date).toLocaleDateString()}</p>
                 <p className="event-venue">{event.venue}</p>
-                <p className="event-price">₹{event.price}</p>
+                <p className="event-price">${event.price}</p>
                 <p className="event-seats">{event.availableSeats} seats available</p>
               </div>
             </Link>

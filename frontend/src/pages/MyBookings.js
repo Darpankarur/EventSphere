@@ -63,7 +63,7 @@ function MyBookings() {
               <p><strong>Date:</strong> {new Date(booking.eventDate).toLocaleDateString()}</p>
               <p><strong>Venue:</strong> {booking.eventVenue}</p>
               <p><strong>Tickets:</strong> {booking.numberOfTickets}</p>
-              <p><strong>Total Amount:</strong> ₹{booking.totalAmount}</p>
+              <p><strong>Total Amount:</strong> ${booking.totalAmount}</p>
               <p><strong>Payment:</strong> {booking.paymentStatus}</p>
               {booking.bookingStatus === 'confirmed' && (
                 <button 

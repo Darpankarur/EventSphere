@@ -30,10 +30,13 @@ services:
       PORT: 4001
       MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/auth?authSource=admin
       JWT_SECRET: ${JWT_SECRET}
+      NOTIFICATION_SERVICE_URL: http://notification-service:4004
       NODE_ENV: production
     depends_on:
       mongodb:
         condition: service_healthy
+      notification-service:
+        condition: service_started
     networks:
       - event-platform-network
     restart: unless-stopped
@@ -73,6 +76,7 @@ services:
       MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/bookings?authSource=admin
       AUTH_SERVICE_URL: http://auth-service:4001
       EVENT_SERVICE_URL: http://event-service:4002
+      NOTIFICATION_SERVICE_URL: http://notification-service:4004
       NODE_ENV: production
     depends_on:
       mongodb:
@@ -81,6 +85,26 @@ services:
         condition: service_started
       event-service:
         condition: service_started
+      notification-service:
+        condition: service_started
+    networks:
+      - event-platform-network
+    restart: unless-stopped
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    ports:
+      - "4004:4004"
+    environment:
+      PORT: 4004
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SNS_TOPIC_ARN: ${SNS_TOPIC_ARN}
+      AUTH_SERVICE_URL: http://auth-service:4001
+      NODE_ENV: production
     networks:
       - event-platform-network
     restart: unless-stopped

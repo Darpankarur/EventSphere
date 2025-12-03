@@ -58,6 +58,11 @@ spec:
             configMapKeyRef:
               name: booking-service-config
               key: EVENT_SERVICE_URL
+        - name: NOTIFICATION_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: booking-service-config
+              key: NOTIFICATION_SERVICE_URL
         - name: CORS_ORIGINS
           valueFrom:
             configMapKeyRef:

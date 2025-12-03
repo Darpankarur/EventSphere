@@ -227,10 +227,56 @@ if [ "$SKIP_SECRETS" != "true" ]; then
         echo -e "${YELLOW}[DRY RUN] Would create/update secret: $JWT_SECRET_NAME${NC}"
     fi
     
+    # Create SNS Topic for notifications
+    SNS_TOPIC_NAME="eventsphere-notifications"
+    
+    if [ "$DRY_RUN" != "true" ]; then
+        echo -e "${BLUE}📧 Creating SNS topic for notifications...${NC}"
+        
+        # Create or get SNS topic
+        SNS_TOPIC_ARN=$(aws sns create-topic \
+            --name "${SNS_TOPIC_NAME}" \
+            --region "${AWS_REGION}" \
+            --attributes DisplayName="EventSphere Notifications" \
+            --tags Key=Project,Value=EventSphere Key=ManagedBy,Value=Script \
+            --query 'TopicArn' \
+            --output text 2>/dev/null || \
+            aws sns list-topics --region "${AWS_REGION}" --query "Topics[?contains(TopicArn, '${SNS_TOPIC_NAME}')].TopicArn" --output text)
+        
+        if [ -n "$SNS_TOPIC_ARN" ]; then
+            echo -e "${GREEN}✅ SNS Topic created/found: ${SNS_TOPIC_ARN}${NC}"
+            
+            # Store SNS Topic ARN in Secrets Manager
+            NOTIFICATION_SECRET_NAME="eventsphere/notification-service"
+            NOTIFICATION_SECRET_JSON="{\"sns-topic-arn\":\"${SNS_TOPIC_ARN}\"}"
+            
+            if aws secretsmanager describe-secret --secret-id "$NOTIFICATION_SECRET_NAME" --region "$AWS_REGION" &> /dev/null; then
+                aws secretsmanager update-secret \
+                    --secret-id "$NOTIFICATION_SECRET_NAME" \
+                    --secret-string "$NOTIFICATION_SECRET_JSON" \
+                    --region "$AWS_REGION" > /dev/null
+                echo -e "${GREEN}✅ Updated notification service secret in AWS Secrets Manager${NC}"
+            else
+                aws secretsmanager create-secret \
+                    --name "$NOTIFICATION_SECRET_NAME" \
+                    --secret-string "$NOTIFICATION_SECRET_JSON" \
+                    --region "$AWS_REGION" > /dev/null
+                echo -e "${GREEN}✅ Created notification service secret in AWS Secrets Manager${NC}"
+            fi
+        else
+            echo -e "${RED}❌ Failed to create SNS topic${NC}"
+        fi
+    else
+        echo -e "${YELLOW}[DRY RUN] Would create SNS topic: $SNS_TOPIC_NAME${NC}"
+    fi
+    
     echo ""
     echo -e "${YELLOW}⚠️  IMPORTANT: Save these credentials securely!${NC}"
     echo "  MongoDB Password: $MONGODB_PASSWORD"
     echo "  JWT Secret: $JWT_SECRET"
+    if [ -n "$SNS_TOPIC_ARN" ]; then
+        echo "  SNS Topic ARN: $SNS_TOPIC_ARN"
+    fi
     echo ""
 else
     echo -e "${YELLOW}⏭️  Skipping AWS Secrets Manager configuration${NC}"
@@ -343,6 +389,23 @@ if [ "$SKIP_MONGODB" != "true" ]; then
                 --from-literal=jwt-secret="$JWT_SECRET" \
                 -n prod \
                 --dry-run=client -o yaml | kubectl apply -f -
+            
+            # Get SNS Topic ARN from AWS Secrets Manager
+            if aws secretsmanager describe-secret --secret-id "eventsphere/notification-service" --region "$AWS_REGION" &> /dev/null; then
+                NOTIFICATION_SECRET_JSON=$(aws secretsmanager get-secret-value \
+                    --secret-id "eventsphere/notification-service" \
+                    --region "$AWS_REGION" \
+                    --query SecretString --output text)
+                SNS_TOPIC_ARN=$(echo "$NOTIFICATION_SECRET_JSON" | grep -o '"sns-topic-arn":"[^"]*"' | cut -d'"' -f4)
+                
+                # Create notification service secret
+                kubectl create secret generic notification-service-secret \
+                    --from-literal=sns-topic-arn="$SNS_TOPIC_ARN" \
+                    -n prod \
+                    --dry-run=client -o yaml | kubectl apply -f -
+            else
+                echo -e "${YELLOW}⚠️  SNS Topic ARN not found in Secrets Manager. Skipping notification service secret.${NC}"
+            fi
             
             echo -e "${GREEN}✅ Kubernetes secrets created${NC}"
             echo ""

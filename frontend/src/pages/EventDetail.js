@@ -85,7 +85,7 @@ function EventDetail({ user }) {
             <strong>Organizer:</strong> {event.organizer}
           </div>
           <div className="detail-item">
-            <strong>Price:</strong> ₹{event.price} per ticket
+            <strong>Price:</strong> ${event.price} per ticket
           </div>
           <div className="detail-item">
             <strong>Available Seats:</strong> {event.availableSeats} / {event.capacity}
@@ -102,7 +102,7 @@ function EventDetail({ user }) {
               value={tickets}
               onChange={(e) => setTickets(parseInt(e.target.value))}
             />
-            <p className="total">Total: ₹{event.price * tickets}</p>
+            <p className="total">Total: ${event.price * tickets}</p>
             <button 
               onClick={handleBooking} 
               className="btn btn-primary"

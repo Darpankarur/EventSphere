@@ -47,6 +47,17 @@ metadata:
   labels:
     app: frontend
     environment: production
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-service-sa
+  namespace: prod
+  labels:
+    app: notification-service
+    environment: production
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::277707118728:role/eventsphere-notification-service-role
 
 # ==============================================================================
 # SERVICE ACCOUNTS - Staging Namespace
@@ -87,6 +98,15 @@ metadata:
   labels:
     app: frontend
     environment: staging
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-service-sa
+  namespace: staging
+  labels:
+    app: notification-service
+    environment: staging
 
 # ==============================================================================
 # SERVICE ACCOUNTS - Development Namespace
@@ -126,6 +146,15 @@ metadata:
   namespace: dev
   labels:
     app: frontend
+    environment: development
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-service-sa
+  namespace: dev
+  labels:
+    app: notification-service
     environment: development
 
 # ==============================================================================
@@ -184,6 +213,20 @@ rules:
 - apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: notification-service-role
+  namespace: prod
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+  resourceNames: ["notification-service-secret"]
 
 # ==============================================================================
 # SERVICE-SPECIFIC ROLES - Staging
@@ -228,6 +271,16 @@ rules:
 - apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: notification-service-role
+  namespace: staging
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
 
 # ==============================================================================
 # SERVICE-SPECIFIC ROLES - Development
@@ -271,6 +324,16 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: notification-service-role
+  namespace: dev
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
   verbs: ["get", "list"]
 
 # ==============================================================================
@@ -332,6 +395,20 @@ roleRef:
   kind: Role
   name: frontend-role
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: notification-service-rolebinding
+  namespace: prod
+subjects:
+- kind: ServiceAccount
+  name: notification-service-sa
+  namespace: prod
+roleRef:
+  kind: Role
+  name: notification-service-role
+  apiGroup: rbac.authorization.k8s.io
 
 # ==============================================================================
 # SERVICE ACCOUNT TO ROLE BINDINGS - Staging
@@ -392,6 +469,20 @@ roleRef:
   kind: Role
   name: frontend-role
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: notification-service-rolebinding
+  namespace: staging
+subjects:
+- kind: ServiceAccount
+  name: notification-service-sa
+  namespace: staging
+roleRef:
+  kind: Role
+  name: notification-service-role
+  apiGroup: rbac.authorization.k8s.io
 
 # ==============================================================================
 # SERVICE ACCOUNT TO ROLE BINDINGS - Development
@@ -451,6 +542,20 @@ subjects:
 roleRef:
   kind: Role
   name: frontend-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: notification-service-rolebinding
+  namespace: dev
+subjects:
+- kind: ServiceAccount
+  name: notification-service-sa
+  namespace: dev
+roleRef:
+  kind: Role
+  name: notification-service-role
   apiGroup: rbac.authorization.k8s.io
 
 # ==============================================================================

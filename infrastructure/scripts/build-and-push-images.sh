@@ -22,7 +22,7 @@ SKIP_BUILD="${SKIP_BUILD:-false}"
 SKIP_REPO_CREATION="${SKIP_REPO_CREATION:-false}"
 
 # Services to build
-SERVICES=("auth-service" "event-service" "booking-service" "frontend")
+SERVICES=("auth-service" "event-service" "booking-service" "notification-service" "frontend")
 
 echo -e "${BLUE}🐳 EventSphere Docker Image Build and Push Script${NC}"
 echo ""

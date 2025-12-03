@@ -60,7 +60,7 @@ echo -e "${GREEN}✅ OIDC Provider ID: $OIDC_ID${NC}"
 create_trust_policy() {
     local namespace=$1
     local service_account=$2
-    local temp_file=$(mktemp)
+    local temp_file="trust-policy-temp.json"
     
     cat > $temp_file <<EOF
 {
@@ -169,7 +169,7 @@ echo "2. External Secrets Operator Role"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Create custom policy for Secrets Manager (least privilege)
-SECRETS_POLICY_FILE=$(mktemp)
+SECRETS_POLICY_FILE="secrets-policy-temp.json"
 cat > $SECRETS_POLICY_FILE <<EOF
 {
   "Version": "2012-10-17",
@@ -202,6 +202,38 @@ create_iam_role \
 
 rm -f $SECRETS_POLICY_FILE
 
+# Create Notification Service Role
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "3. Notification Service Role"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Create custom policy for SNS publish
+NOTIFICATION_POLICY_FILE="notification-policy-temp.json"
+cat > $NOTIFICATION_POLICY_FILE <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sns:Publish"
+      ],
+      "Resource": "arn:aws:sns:${REGION}:${AWS_ACCOUNT_ID}:eventsphere-notifications"
+    }
+  ]
+}
+EOF
+
+create_iam_role \
+    "notification-service-role" \
+    "prod" \
+    "notification-service-sa" \
+    "" \
+    "$NOTIFICATION_POLICY_FILE"
+
+rm -f $NOTIFICATION_POLICY_FILE
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "✅ IAM role creation completed!"
@@ -212,6 +244,7 @@ echo "1. Annotate service accounts with role ARNs (see commands above)"
 echo "2. Verify roles are working:"
 echo "   kubectl describe sa fluent-bit -n kube-system"
 echo "   kubectl describe sa external-secrets -n external-secrets-system"
+echo "   kubectl describe sa notification-service-sa -n prod"
 echo ""
 echo "Note: ALB Controller, Cluster Autoscaler, EBS CSI, and EFS CSI roles"
 echo "      are created automatically by eksctl when using wellKnownPolicies."
