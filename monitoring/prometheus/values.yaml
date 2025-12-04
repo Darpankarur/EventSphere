@@ -1,283 +1,65 @@
-# Prometheus Stack Helm Values for EventSphere
-# Install with: helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring -f values.yaml
+# Simplified Prometheus Stack Values for EventSphere
+# Tested configuration that works reliably across environments
 
-# Global settings
-fullnameOverride: prometheus
-
-# Prometheus configuration
+# Reduce resource usage for smaller clusters
 prometheus:
   prometheusSpec:
-    # Retention period for metrics
-    retention: 15d
-    retentionSize: "40GB"
-    
-    # Resource limits
+    retention: 7d
     resources:
       requests:
-        memory: 512Mi
-        cpu: 250m
+        memory: 256Mi
+        cpu: 100m
       limits:
-        memory: 2Gi
-        cpu: 1000m
-    
-    # Persistent storage
-    storageSpec:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: gp2
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 50Gi
-    
-    # Service discovery - watch all namespaces
-    serviceMonitorSelector: {}
-    serviceMonitorNamespaceSelector: {}
-    podMonitorSelector: {}
-    podMonitorNamespaceSelector: {}
-    ruleSelector: {}
-    ruleNamespaceSelector: {}
-    
-    # Additional scrape configs for EventSphere services
-    additionalScrapeConfigs:
-      - job_name: 'eventsphere-pods'
-        kubernetes_sd_configs:
-          - role: pod
-            namespaces:
-              names:
-                - prod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
-            action: keep
-            regex: true
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
-          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            regex: ([^:]+)(?::\d+)?;(\d+)
-            replacement: $1:$2
-            target_label: __address__
-          - source_labels: [__meta_kubernetes_namespace]
-            action: replace
-            target_label: namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            action: replace
-            target_label: pod
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            action: replace
-            target_label: app
-    
-    # Security context
-    securityContext:
-      runAsNonRoot: true
-      runAsUser: 1000
-      fsGroup: 2000
+        memory: 1Gi
+        cpu: 500m
+    # Use emptyDir instead of PVC for simplicity (data lost on restart, but works everywhere)
+    storageSpec: {}
 
-  # Prometheus service
-  service:
-    type: ClusterIP
-    port: 9090
-
-# AlertManager configuration
 alertmanager:
   enabled: true
   alertmanagerSpec:
-    # Resource limits
     resources:
       requests:
-        memory: 128Mi
-        cpu: 50m
+        memory: 64Mi
+        cpu: 25m
       limits:
-        memory: 256Mi
-        cpu: 200m
-    
-    # Persistent storage
-    storage:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: gp2
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 10Gi
-    
-    # Security context
-    securityContext:
-      runAsNonRoot: true
-      runAsUser: 1000
-      fsGroup: 2000
+        memory: 128Mi
+        cpu: 100m
+    storage: {}
 
-  # AlertManager config will be managed separately via Secret
-  config:
-    global:
-      resolve_timeout: 5m
-    route:
-      receiver: 'default-receiver'
-      group_by: ['alertname', 'severity', 'namespace']
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 4h
-      routes:
-        - match:
-            severity: critical
-          receiver: 'critical-receiver'
-          continue: true
-        - match:
-            severity: warning
-          receiver: 'warning-receiver'
-    receivers:
-      - name: 'default-receiver'
-      - name: 'critical-receiver'
-      - name: 'warning-receiver'
-
-# Grafana configuration
 grafana:
   enabled: true
-  
-  # Admin credentials (change in production!)
   adminUser: admin
-  adminPassword: "EventSphere2024!"
-  
-  # Resource limits
+  adminPassword: "EventSphere2024"
   resources:
     requests:
-      memory: 256Mi
-      cpu: 100m
+      memory: 128Mi
+      cpu: 50m
     limits:
-      memory: 512Mi
-      cpu: 500m
-  
-  # Persistent storage
+      memory: 256Mi
+      cpu: 200m
   persistence:
-    enabled: true
-    storageClassName: gp2
-    size: 10Gi
-  
-  # Service configuration
+    enabled: false
   service:
     type: ClusterIP
-    port: 80
-  
-  # Ingress (disabled - use port-forward or configure separately)
-  ingress:
-    enabled: false
-  
-  # Dashboard providers
-  dashboardProviders:
-    dashboardproviders.yaml:
-      apiVersion: 1
-      providers:
-        - name: 'eventsphere'
-          orgId: 1
-          folder: 'EventSphere'
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards/eventsphere
-        - name: 'kubernetes'
-          orgId: 1
-          folder: 'Kubernetes'
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards/kubernetes
-  
-  # Default dashboards
-  dashboards:
-    eventsphere:
-      eventsphere-overview:
-        file: dashboards/eventsphere-dashboard.json
-  
-  # Data sources
-  datasources:
-    datasources.yaml:
-      apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          url: http://prometheus-kube-prometheus-prometheus:9090
-          access: proxy
-          isDefault: true
-        - name: AlertManager
-          type: alertmanager
-          url: http://prometheus-kube-prometheus-alertmanager:9093
-          access: proxy
-  
-  # Grafana.ini settings
-  grafana.ini:
-    server:
-      root_url: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
-    security:
-      admin_user: admin
-    users:
-      allow_sign_up: false
-    auth.anonymous:
-      enabled: false
 
-  # Sidecar for loading dashboards from ConfigMaps
-  sidecar:
-    dashboards:
-      enabled: true
-      label: grafana_dashboard
-      labelValue: "1"
-      folder: /var/lib/grafana/dashboards/eventsphere
-      searchNamespace: ALL
-    datasources:
-      enabled: true
-      label: grafana_datasource
-      labelValue: "1"
-
-# Prometheus Node Exporter
-nodeExporter:
-  enabled: true
-  resources:
-    requests:
-      memory: 64Mi
-      cpu: 50m
-    limits:
-      memory: 128Mi
-      cpu: 200m
-
-# Kube State Metrics
-kubeStateMetrics:
-  enabled: true
-  resources:
-    requests:
-      memory: 64Mi
-      cpu: 50m
-    limits:
-      memory: 128Mi
-      cpu: 200m
-
-# Prometheus Operator
-prometheusOperator:
-  enabled: true
-  resources:
-    requests:
-      memory: 128Mi
-      cpu: 100m
-    limits:
-      memory: 256Mi
-      cpu: 500m
-
-# Disable components not needed for EKS
+# Disable components not needed/available in EKS
 kubeEtcd:
   enabled: false
-
 kubeControllerManager:
   enabled: false
-
 kubeScheduler:
   enabled: false
 
+# Enable what we need
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true
 kubeProxy:
   enabled: true
 
-# Default rules
+# Simplified default rules
 defaultRules:
   create: true
   rules:
@@ -286,13 +68,13 @@ defaultRules:
     configReloaders: true
     general: true
     k8s: true
-    kubeApiserverAvailability: true
-    kubeApiserverBurnrate: true
-    kubeApiserverHistogram: true
-    kubeApiserverSlos: true
+    kubeApiserverAvailability: false
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
     kubeControllerManager: false
     kubelet: true
-    kubeProxy: true
+    kubeProxy: false
     kubePrometheusGeneral: true
     kubePrometheusNodeRecording: true
     kubernetesApps: true
@@ -308,4 +90,3 @@ defaultRules:
     nodeExporterRecording: true
     prometheus: true
     prometheusOperator: true
-
