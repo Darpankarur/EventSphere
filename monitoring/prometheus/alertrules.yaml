@@ -1,0 +1,309 @@
+# Prometheus Alert Rules for EventSphere
+# Defines alerts for monitoring application health and SLO violations
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: eventsphere-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus
+    app: kube-prometheus-stack
+spec:
+  groups:
+    # ==========================================
+    # Application Health Alerts
+    # ==========================================
+    - name: eventsphere.application
+      rules:
+        # High Error Rate (5xx responses)
+        - alert: HighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{status_code=~"5..", namespace="prod"}[5m])) by (service, app)
+              /
+              sum(rate(http_requests_total{namespace="prod"}[5m])) by (service, app)
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "High error rate detected for {{ $labels.app }}"
+            description: "Service {{ $labels.app }} has an error rate above 5% (current: {{ $value | humanizePercentage }})"
+            runbook_url: "https://github.com/your-repo/docs/runbooks/TROUBLESHOOTING.md#high-error-rate"
+
+        # High Latency (P99 > 2s)
+        - alert: HighLatencyP99
+          expr: |
+            histogram_quantile(0.99, 
+              sum(rate(http_request_duration_seconds_bucket{namespace="prod"}[5m])) by (le, service, app)
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "High P99 latency for {{ $labels.app }}"
+            description: "Service {{ $labels.app }} P99 latency is above 2 seconds (current: {{ $value | humanizeDuration }})"
+            runbook_url: "https://github.com/your-repo/docs/runbooks/TROUBLESHOOTING.md#high-latency"
+
+        # High Latency (P95 > 1s)
+        - alert: HighLatencyP95
+          expr: |
+            histogram_quantile(0.95, 
+              sum(rate(http_request_duration_seconds_bucket{namespace="prod"}[5m])) by (le, service, app)
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Elevated P95 latency for {{ $labels.app }}"
+            description: "Service {{ $labels.app }} P95 latency is above 1 second (current: {{ $value | humanizeDuration }})"
+
+        # Service Down (no successful requests)
+        - alert: ServiceDown
+          expr: |
+            sum(rate(http_requests_total{namespace="prod", status_code=~"2.."}[5m])) by (app) == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Service {{ $labels.app }} appears to be down"
+            description: "No successful requests to {{ $labels.app }} in the last 2 minutes"
+            runbook_url: "https://github.com/your-repo/docs/runbooks/TROUBLESHOOTING.md#service-down"
+
+    # ==========================================
+    # Pod and Container Alerts
+    # ==========================================
+    - name: eventsphere.pods
+      rules:
+        # Pod CrashLooping
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total{namespace="prod"}[15m]) * 60 * 15 > 3
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash looping"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value | humanize }} times in the last 15 minutes"
+            runbook_url: "https://github.com/your-repo/docs/runbooks/TROUBLESHOOTING.md#pod-crash-looping"
+
+        # Pod Not Ready
+        - alert: PodNotReady
+          expr: |
+            sum by (namespace, pod) (kube_pod_status_phase{namespace="prod", phase=~"Pending|Unknown"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Pod {{ $labels.pod }} not ready"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in a non-ready state for more than 10 minutes"
+
+        # Container Waiting
+        - alert: ContainerWaiting
+          expr: |
+            sum by (namespace, pod, container) (kube_pod_container_status_waiting_reason{namespace="prod"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Container {{ $labels.container }} waiting in pod {{ $labels.pod }}"
+            description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} has been waiting for more than 10 minutes"
+
+        # Deployment Replicas Mismatch
+        - alert: DeploymentReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas{namespace="prod"}
+            != 
+            kube_deployment_status_replicas_available{namespace="prod"}
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Deployment {{ $labels.deployment }} replica mismatch"
+            description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has not matched the expected number of replicas for more than 10 minutes"
+
+    # ==========================================
+    # Resource Alerts
+    # ==========================================
+    - name: eventsphere.resources
+      rules:
+        # High Memory Usage (> 90%)
+        - alert: HighMemoryUsage
+          expr: |
+            (
+              sum(container_memory_working_set_bytes{namespace="prod", container!=""}) by (pod, container)
+              /
+              sum(container_spec_memory_limit_bytes{namespace="prod", container!=""}) by (pod, container)
+            ) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "High memory usage for {{ $labels.pod }}/{{ $labels.container }}"
+            description: "Container {{ $labels.container }} in pod {{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit"
+
+        # High CPU Usage (> 80%)
+        - alert: HighCPUUsage
+          expr: |
+            (
+              sum(rate(container_cpu_usage_seconds_total{namespace="prod", container!=""}[5m])) by (pod, container)
+              /
+              sum(container_spec_cpu_quota{namespace="prod", container!=""}/container_spec_cpu_period{namespace="prod", container!=""}) by (pod, container)
+            ) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "High CPU usage for {{ $labels.pod }}/{{ $labels.container }}"
+            description: "Container {{ $labels.container }} in pod {{ $labels.pod }} is using {{ $value | humanizePercentage }} of its CPU limit"
+
+        # Memory Near Limit (> 85% - early warning)
+        - alert: MemoryNearLimit
+          expr: |
+            (
+              sum(container_memory_working_set_bytes{namespace="prod", container!=""}) by (pod, container)
+              /
+              sum(container_spec_memory_limit_bytes{namespace="prod", container!=""}) by (pod, container)
+            ) > 0.85
+          for: 15m
+          labels:
+            severity: info
+            team: platform
+          annotations:
+            summary: "Memory approaching limit for {{ $labels.pod }}/{{ $labels.container }}"
+            description: "Container {{ $labels.container }} in pod {{ $labels.pod }} is at {{ $value | humanizePercentage }} of its memory limit"
+
+    # ==========================================
+    # Database Alerts
+    # ==========================================
+    - name: eventsphere.database
+      rules:
+        # MongoDB Down
+        - alert: MongoDBDown
+          expr: |
+            up{job=~".*mongodb.*"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: database
+          annotations:
+            summary: "MongoDB is down"
+            description: "MongoDB instance {{ $labels.instance }} is not responding"
+            runbook_url: "https://github.com/your-repo/docs/runbooks/TROUBLESHOOTING.md#mongodb-down"
+
+        # MongoDB High Connection Count
+        - alert: MongoDBHighConnections
+          expr: |
+            mongodb_connections{state="current"} > 100
+          for: 5m
+          labels:
+            severity: warning
+            team: database
+          annotations:
+            summary: "MongoDB high connection count"
+            description: "MongoDB has {{ $value }} active connections"
+
+        # MongoDB Replication Lag (if using replica set)
+        - alert: MongoDBReplicationLag
+          expr: |
+            mongodb_mongod_replset_member_optime_date{state="SECONDARY"} 
+            - on() group_left() 
+            mongodb_mongod_replset_member_optime_date{state="PRIMARY"} < -10
+          for: 5m
+          labels:
+            severity: warning
+            team: database
+          annotations:
+            summary: "MongoDB replication lag detected"
+            description: "MongoDB secondary is lagging behind primary by more than 10 seconds"
+
+    # ==========================================
+    # HPA Alerts
+    # ==========================================
+    - name: eventsphere.hpa
+      rules:
+        # HPA at Max Replicas
+        - alert: HPAAtMaxReplicas
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{namespace="prod"}
+            ==
+            kube_horizontalpodautoscaler_spec_max_replicas{namespace="prod"}
+          for: 15m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "HPA {{ $labels.horizontalpodautoscaler }} at maximum replicas"
+            description: "HPA {{ $labels.horizontalpodautoscaler }} has been at max replicas for 15 minutes - consider increasing limits"
+
+        # HPA Unable to Scale
+        - alert: HPAUnableToScale
+          expr: |
+            kube_horizontalpodautoscaler_status_condition{condition="ScalingActive", status="false"} == 1
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "HPA {{ $labels.horizontalpodautoscaler }} unable to scale"
+            description: "HPA {{ $labels.horizontalpodautoscaler }} is unable to scale - check metrics availability"
+
+    # ==========================================
+    # Network Alerts
+    # ==========================================
+    - name: eventsphere.network
+      rules:
+        # High Network Errors
+        - alert: HighNetworkErrors
+          expr: |
+            sum(rate(container_network_receive_errors_total{namespace="prod"}[5m])) by (pod) > 0
+            or
+            sum(rate(container_network_transmit_errors_total{namespace="prod"}[5m])) by (pod) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "High network errors for pod {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} is experiencing network errors"
+
+    # ==========================================
+    # Certificate Alerts
+    # ==========================================
+    - name: eventsphere.certificates
+      rules:
+        # Certificate Expiring Soon (30 days)
+        - alert: CertificateExpiringSoon
+          expr: |
+            (probe_ssl_earliest_cert_expiry - time()) / 86400 < 30
+          for: 1h
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Certificate expiring soon"
+            description: "Certificate for {{ $labels.instance }} expires in {{ $value | humanize }} days"
+
+        # Certificate Expiring Very Soon (7 days)
+        - alert: CertificateExpiringVerySoon
+          expr: |
+            (probe_ssl_earliest_cert_expiry - time()) / 86400 < 7
+          for: 1h
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Certificate expiring very soon!"
+            description: "Certificate for {{ $labels.instance }} expires in {{ $value | humanize }} days - immediate action required"
+
