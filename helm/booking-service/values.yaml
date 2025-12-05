@@ -1,0 +1,19 @@
+replicaCount: 2
+
+image:
+  repository: ""  
+  tag: "latest"    
+  pullPolicy: IfNotPresent
+
+namespace: dev
+
+serviceAccount:
+  name: booking-service-sa
+
+configMap:
+  name: booking-service-config
+
+secrets:
+  mongodb:
+    name: mongodb-secret
+    key: connection-string

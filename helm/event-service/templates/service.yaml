@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: event-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 4002
+    targetPort: 4002
+    protocol: TCP
+  selector:
+    app: event-service

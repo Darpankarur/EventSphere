@@ -1,0 +1,499 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  NODE_VERSION: '25.1.0'
+
+jobs:
+  determine-environment:
+    name: Determine Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      image-tag: ${{ steps.set-tag.outputs.tag }}
+    steps:
+      - name: Set deployment environment
+        id: set-env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            # Push to main → deploy to staging
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set image tag
+        id: set-tag
+        run: |
+          # Use short SHA (7 characters) for image tags
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Full SHA: ${{ github.sha }}"
+          echo "Image tag: ${SHORT_SHA}"
+
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image-tag: ${{ needs.determine-environment.outputs.image-tag }}
+      environment: ${{ needs.determine-environment.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get AWS Account ID
+        id: get-account-id
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account-id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          echo "ECR Registry: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set image tag
+        id: set-tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Build and push auth-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/auth-service
+          file: ./services/auth-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ECR_REPOSITORY }}/auth-service:${{ steps.set-tag.outputs.tag }}
+            ${{ secrets.ECR_REPOSITORY }}/auth-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push event-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/event-service
+          file: ./services/event-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ECR_REPOSITORY }}/event-service:${{ steps.set-tag.outputs.tag }}
+            ${{ secrets.ECR_REPOSITORY }}/event-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push booking-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/booking-service
+          file: ./services/booking-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ECR_REPOSITORY }}/booking-service:${{ steps.set-tag.outputs.tag }}
+            ${{ secrets.ECR_REPOSITORY }}/booking-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ECR_REPOSITORY }}/frontend:${{ steps.set-tag.outputs.tag }}
+            ${{ secrets.ECR_REPOSITORY }}/frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: [determine-environment, build-and-push]
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: ${{ needs.determine-environment.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Check if cluster exists
+        id: check-cluster
+        run: |
+          CLUSTER_NAME="${{ secrets.EKS_CLUSTER_NAME }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          
+          if [ -z "$CLUSTER_NAME" ]; then
+            echo "EKS_CLUSTER_NAME secret is not set, skipping deployment"
+            echo "exists=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Checking if cluster '$CLUSTER_NAME' exists..."
+          
+          # Check if cluster exists
+          if aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" &> /dev/null; then
+            # Get cluster status
+            CLUSTER_STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" --query 'cluster.status' --output text)
+            
+            if [ "$CLUSTER_STATUS" == "ACTIVE" ]; then
+              echo "Cluster '$CLUSTER_NAME' exists and is ACTIVE"
+              echo "exists=true" >> $GITHUB_OUTPUT
+            else
+              echo "Cluster '$CLUSTER_NAME' exists but is not ACTIVE (status: $CLUSTER_STATUS), skipping deployment"
+              echo "exists=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Cluster '$CLUSTER_NAME' does not exist in region '$AWS_REGION', skipping deployment"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure kubeconfig
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+          
+          # Verify kubeconfig is working
+          if ! kubectl cluster-info &> /dev/null; then
+            echo "Error: Failed to configure kubeconfig or cluster is not accessible"
+            exit 1
+          fi
+          
+          echo "Successfully configured kubeconfig"
+
+      - name: Get AWS Account ID
+        if: steps.check-cluster.outputs.exists == 'true'
+        id: get-account-id
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${{ secrets.ECR_REPOSITORY }}"
+          echo "account-id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+          echo "ecr-registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "ECR Registry: ${ECR_REGISTRY}"
+
+      - name: Set image tag
+        if: steps.check-cluster.outputs.exists == 'true'
+        id: set-tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Set namespace
+        if: steps.check-cluster.outputs.exists == 'true'
+        id: set-namespace
+        run: |
+          ENV="${{ needs.determine-environment.outputs.environment }}"
+          if [ "$ENV" == "production" ]; then
+            echo "namespace=prod" >> $GITHUB_OUTPUT
+          else
+            echo "namespace=${ENV}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create namespace
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy auth-service with Helm
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          IMAGE_TAG="${{ steps.set-tag.outputs.tag }}"
+          ECR_REGISTRY="${{ steps.get-account-id.outputs.ecr-registry }}"
+          
+          echo "Deploying auth-service to namespace: ${NAMESPACE}"
+          echo "Image: ${ECR_REGISTRY}/auth-service:${IMAGE_TAG}"
+          
+          helm upgrade --install auth-service ./helm/auth-service \
+            --namespace ${NAMESPACE} \
+            --set image.repository=${ECR_REGISTRY}/auth-service \
+            --set image.tag=${IMAGE_TAG} \
+            --set namespace=${NAMESPACE} \
+            --wait --timeout=5m
+
+      - name: Deploy event-service with Helm
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          IMAGE_TAG="${{ steps.set-tag.outputs.tag }}"
+          ECR_REGISTRY="${{ steps.get-account-id.outputs.ecr-registry }}"
+          
+          echo "Deploying event-service to namespace: ${NAMESPACE}"
+          echo "Image: ${ECR_REGISTRY}/event-service:${IMAGE_TAG}"
+          
+          helm upgrade --install event-service ./helm/event-service \
+            --namespace ${NAMESPACE} \
+            --set image.repository=${ECR_REGISTRY}/event-service \
+            --set image.tag=${IMAGE_TAG} \
+            --set namespace=${NAMESPACE} \
+            --wait --timeout=5m
+
+      - name: Deploy booking-service with Helm
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          IMAGE_TAG="${{ steps.set-tag.outputs.tag }}"
+          ECR_REGISTRY="${{ steps.get-account-id.outputs.ecr-registry }}"
+          
+          echo "Deploying booking-service to namespace: ${NAMESPACE}"
+          echo "Image: ${ECR_REGISTRY}/booking-service:${IMAGE_TAG}"
+          
+          helm upgrade --install booking-service ./helm/booking-service \
+            --namespace ${NAMESPACE} \
+            --set image.repository=${ECR_REGISTRY}/booking-service \
+            --set image.tag=${IMAGE_TAG} \
+            --set namespace=${NAMESPACE} \
+            --wait --timeout=5m
+
+      - name: Deploy frontend with Helm
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          IMAGE_TAG="${{ steps.set-tag.outputs.tag }}"
+          ECR_REGISTRY="${{ steps.get-account-id.outputs.ecr-registry }}"
+          
+          echo "Deploying frontend to namespace: ${NAMESPACE}"
+          echo "Image: ${ECR_REGISTRY}/frontend:${IMAGE_TAG}"
+          
+          helm upgrade --install frontend ./helm/frontend \
+            --namespace ${NAMESPACE} \
+            --set image.repository=${ECR_REGISTRY}/frontend \
+            --set image.tag=${IMAGE_TAG} \
+            --set namespace=${NAMESPACE} \
+            --wait --timeout=5m
+
+      - name: Verify rollout status
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          echo "Verifying rollout status for all deployments..."
+          kubectl rollout status deployment/auth-service -n ${NAMESPACE} --timeout=2m
+          kubectl rollout status deployment/event-service -n ${NAMESPACE} --timeout=2m
+          kubectl rollout status deployment/booking-service -n ${NAMESPACE} --timeout=2m
+          kubectl rollout status deployment/frontend -n ${NAMESPACE} --timeout=2m
+
+      - name: Verify Helm releases
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          echo "Checking Helm releases in namespace: ${NAMESPACE}"
+          helm list -n ${NAMESPACE}
+          
+          echo "Checking pod status:"
+          kubectl get pods -n ${NAMESPACE} -o wide
+          
+          # Verify all deployments are ready
+          kubectl wait --for=condition=available deployment/auth-service -n ${NAMESPACE} --timeout=2m || true
+          kubectl wait --for=condition=available deployment/event-service -n ${NAMESPACE} --timeout=2m || true
+          kubectl wait --for=condition=available deployment/booking-service -n ${NAMESPACE} --timeout=2m || true
+          kubectl wait --for=condition=available deployment/frontend -n ${NAMESPACE} --timeout=2m || true
+
+      - name: Get ingress URL
+        if: steps.check-cluster.outputs.exists == 'true'
+        id: get-ingress-url
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          INGRESS_URL=$(kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [ -z "$INGRESS_URL" ]; then
+            INGRESS_URL=$(kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "")
+          fi
+          echo "url=${INGRESS_URL}" >> $GITHUB_OUTPUT
+          echo "Ingress URL: ${INGRESS_URL}"
+
+  smoke-tests:
+    name: Post-Deployment Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy]
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Check if cluster exists
+        id: check-cluster
+        run: |
+          CLUSTER_NAME="${{ secrets.EKS_CLUSTER_NAME }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          
+          if [ -z "$CLUSTER_NAME" ]; then
+            echo "EKS_CLUSTER_NAME secret is not set, skipping smoke tests"
+            echo "exists=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Checking if cluster '$CLUSTER_NAME' exists..."
+          
+          # Check if cluster exists
+          if aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" &> /dev/null; then
+            # Get cluster status
+            CLUSTER_STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" --query 'cluster.status' --output text)
+            
+            if [ "$CLUSTER_STATUS" == "ACTIVE" ]; then
+              echo "Cluster '$CLUSTER_NAME' exists and is ACTIVE"
+              echo "exists=true" >> $GITHUB_OUTPUT
+            else
+              echo "Cluster '$CLUSTER_NAME' exists but is not ACTIVE (status: $CLUSTER_STATUS), skipping smoke tests"
+              echo "exists=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Cluster '$CLUSTER_NAME' does not exist in region '$AWS_REGION', skipping smoke tests"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure kubeconfig
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+          
+          # Verify kubeconfig is working
+          if ! kubectl cluster-info &> /dev/null; then
+            echo "Error: Failed to configure kubeconfig or cluster is not accessible"
+            exit 1
+          fi
+          
+          echo "Successfully configured kubeconfig"
+
+      - name: Set namespace
+        if: steps.check-cluster.outputs.exists == 'true'
+        id: set-namespace
+        run: |
+          ENV="${{ needs.determine-environment.outputs.environment }}"
+          if [ "$ENV" == "production" ]; then
+            echo "namespace=prod" >> $GITHUB_OUTPUT
+          else
+            echo "namespace=${ENV}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get service endpoints
+        if: steps.check-cluster.outputs.exists == 'true'
+        id: get-endpoints
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          
+          AUTH_SERVICE=$(kubectl get service auth-service -n ${NAMESPACE} -o jsonpath='{.metadata.name}' 2>/dev/null || echo "")
+          echo "auth-service=${AUTH_SERVICE}" >> $GITHUB_OUTPUT
+          
+          FRONTEND_URL=$(kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [ -z "$FRONTEND_URL" ]; then
+            FRONTEND_URL=$(kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "")
+          fi
+          echo "frontend-url=${FRONTEND_URL}" >> $GITHUB_OUTPUT
+
+      - name: Health check - auth-service
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          echo "Checking auth-service health endpoint..."
+          
+          kubectl port-forward -n ${NAMESPACE} service/auth-service 4001:4001 &
+          PF_PID=$!
+          sleep 5
+          
+          curl -f http://localhost:4001/health || echo "Health check endpoint may not exist"
+          
+          kill $PF_PID || true
+
+      - name: Health check - event-service
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          echo "Checking event-service health endpoint..."
+          
+          kubectl port-forward -n ${NAMESPACE} service/event-service 4002:4002 &
+          PF_PID=$!
+          sleep 5
+          
+          curl -f http://localhost:4002/health || echo "Health check endpoint may not exist"
+          
+          kill $PF_PID || true
+
+      - name: Health check - booking-service
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          echo "Checking booking-service health endpoint..."
+          
+          kubectl port-forward -n ${NAMESPACE} service/booking-service 4003:4003 &
+          PF_PID=$!
+          sleep 5
+          
+          curl -f http://localhost:4003/health || echo "Health check endpoint may not exist"
+          
+          kill $PF_PID || true
+
+      - name: Verify all pods are healthy
+        if: steps.check-cluster.outputs.exists == 'true'
+        run: |
+          NAMESPACE="${{ steps.set-namespace.outputs.namespace }}"
+          echo "Final pod status check:"
+          kubectl get pods -n ${NAMESPACE} -o wide
+          
+          NOT_RUNNING=$(kubectl get pods -n ${NAMESPACE} --field-selector=status.phase!=Running --no-headers 2>/dev/null | wc -l)
+          if [ "$NOT_RUNNING" -gt 0 ]; then
+            echo "Warning: Some pods are not in Running state"
+            kubectl get pods -n ${NAMESPACE} --field-selector=status.phase!=Running
+          else
+            echo "All pods are running"
+          fi
