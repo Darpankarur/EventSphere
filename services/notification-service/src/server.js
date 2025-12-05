@@ -2,9 +2,16 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const notificationRoutes = require('./routes/notifications');
+const { metricsMiddleware, metricsHandler } = require('./middleware/metrics');
 
 const app = express();
 const PORT = process.env.PORT || 4004;
+
+// Prometheus metrics middleware - must be early in the chain
+app.use(metricsMiddleware);
+
+// Metrics endpoint
+app.get('/metrics', metricsHandler);
 
 // Middleware
 app.use(cors());
@@ -21,9 +28,9 @@ app.use('/api/notifications', notificationRoutes);
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Internal server error',
-    message: err.message 
+    message: err.message
   });
 });
 
