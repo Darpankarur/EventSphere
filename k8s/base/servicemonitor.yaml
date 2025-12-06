@@ -1,0 +1,41 @@
+# ServiceMonitor for EventSphere Services
+# Enables Prometheus to scrape /metrics endpoints from all microservices
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: eventsphere-services
+  namespace: monitoring
+  labels:
+    release: prometheus  # Must match Prometheus helm release
+spec:
+  namespaceSelector:
+    matchNames:
+      - prod
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: eventsphere
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+---
+# PodMonitor as fallback for services without proper Service labels
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: eventsphere-pods
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - prod
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: eventsphere
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
